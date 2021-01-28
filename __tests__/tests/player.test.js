@@ -21,6 +21,7 @@ import {
   createRandomNum,
   distinct,
   formatTime,
+  adjustVolume,
 } from '../../src/utils'
 import { sleep } from '../utils'
 
@@ -217,7 +218,9 @@ describe('<ReactJkMusicPlayer/>', () => {
   })
   it('should print second return format time', () => {
     assert(formatTime(30000) === '08:20:00')
-    assert(formatTime(60) === '00:60')
+    assert(formatTime(60) === '01:00')
+    assert(formatTime(120) === '02:00')
+    assert(formatTime(121) === '02:01')
     assert(formatTime(140) === '02:20')
     assert(formatTime(2 * 60 * 60) === '02:00:00')
     assert(formatTime(2 * 60 * 60 + 30) === '02:00:30')
@@ -763,7 +766,7 @@ describe('<ReactJkMusicPlayer/>', () => {
   })
 
   // https://github.com/lijinke666/react-music-player/issues/78#issuecomment-574089990
-  it('should play audio when click play button and not auto play', () => {
+  it('should play audio when click play button and not auto play', async () => {
     const onAudioPlay = jest.fn()
     const wrapper = mount(
       <ReactJkMusicPlayer
@@ -775,6 +778,8 @@ describe('<ReactJkMusicPlayer/>', () => {
     )
     wrapper.setState({ canPlay: true })
     wrapper.find('.play-btn').simulate('click')
+
+    await sleep(200)
     expect(wrapper.state().playing).toEqual(true)
   })
 
@@ -809,11 +814,11 @@ describe('<ReactJkMusicPlayer/>', () => {
     expect(errorSpy).not.toHaveBeenCalled()
   })
 
-  it('should async get music src', () => {
+  it.skip('should async get music src', async () => {
     const getMusicSrc = new Promise((res) => {
       setTimeout(() => {
         res('xxx.mp3')
-      }, 2000)
+      }, 200)
     })
     const wrapper = mount(
       <ReactJkMusicPlayer
@@ -821,16 +826,17 @@ describe('<ReactJkMusicPlayer/>', () => {
         mode="full"
       />,
     )
-    setTimeout(() => {
-      expect(wrapper.state().musicSrc).toEqual('xxx.mp3')
-    }, 2000)
+    await sleep(1000)
+    wrapper.update()
+    expect(wrapper.state().musicSrc).toEqual('xxx.mp3')
   })
-  it('should call onAudioError when async load music src failed', () => {
+
+  it.skip('should call onAudioError when async load music src failed', async () => {
     const onAudioError = jest.fn()
     const getMusicSrc = new Promise((res, rej) => {
       setTimeout(() => {
         rej()
-      }, 2000)
+      }, 200)
     })
     mount(
       <ReactJkMusicPlayer
@@ -840,9 +846,8 @@ describe('<ReactJkMusicPlayer/>', () => {
       />,
     )
 
-    setTimeout(() => {
-      expect(onAudioError).toHaveBeenCalled()
-    }, 2000)
+    await sleep(1000)
+    expect(onAudioError).toHaveBeenCalled()
   })
 
   // https://github.com/lijinke666/react-music-player/issues/101
@@ -1571,5 +1576,250 @@ describe('<ReactJkMusicPlayer/>', () => {
 
     wrapper.setState({ isMobile: true })
     expectButtons()
+  })
+
+  it('should not call onAudioVolumeChange when volume fade in or fade out', async () => {
+    const onAudioVolumeChange = jest.fn()
+    const wrapper = mount(
+      <ReactJkMusicPlayer
+        mode="full"
+        volumeFade={{
+          fadeIn: 200,
+          fadeOut: 200,
+        }}
+        audioLists={[{ name: 'test' }]}
+        onAudioVolumeChange={onAudioVolumeChange}
+      />,
+    )
+
+    wrapper.find('.play-btn').simulate('click')
+    await sleep(300)
+    wrapper.find('.play-btn').simulate('click')
+    expect(wrapper.state().soundValue).toEqual(1)
+    expect(wrapper.state().currentAudioVolume).toEqual(1)
+
+    await sleep(300)
+
+    expect(onAudioVolumeChange).not.toHaveBeenCalled()
+    expect(wrapper.state().soundValue).toEqual(1)
+    expect(wrapper.state().currentAudioVolume).toEqual(1)
+  })
+
+  it('should disable volume fade if duration is empty', async () => {
+    const audio = {
+      volume: 1,
+    }
+    const fn = jest.fn()
+    const { fadeInterval, updateIntervalEndVolume } = adjustVolume(
+      audio,
+      1,
+      0,
+      { duration: 0 },
+      fn,
+    )
+    await sleep(100)
+    expect(fadeInterval).toBeUndefined()
+    expect(updateIntervalEndVolume).toBeUndefined()
+    expect(audio.volume).toStrictEqual(0)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it('should disable volume fade if prev volume equals current volume', async () => {
+    const audio = {
+      volume: 1,
+    }
+    const fn = jest.fn()
+    const { fadeInterval, updateIntervalEndVolume } = adjustVolume(
+      audio,
+      1,
+      1,
+      { duration: 100 },
+      fn,
+    )
+    await sleep(100)
+    expect(fadeInterval).toBeUndefined()
+    expect(updateIntervalEndVolume).toBeUndefined()
+    expect(audio.volume).toStrictEqual(1)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it('should volume fade normal', async () => {
+    const audio = {
+      volume: 1,
+    }
+    const fn = jest.fn()
+    const { fadeInterval, updateIntervalEndVolume } = adjustVolume(
+      audio,
+      audio.volume,
+      0,
+      { duration: 200 },
+      fn,
+    )
+    expect(fadeInterval).not.toBeUndefined()
+    expect(updateIntervalEndVolume).not.toBeUndefined()
+    expect(audio.volume).toStrictEqual(1)
+    expect(fn).not.toHaveBeenCalled()
+
+    await sleep(500)
+
+    expect(Math.floor(audio.volume)).toStrictEqual(0)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it('should respond to end volume changes for fade-ins', async () => {
+    const audio = {
+      volume: 0,
+    }
+    const fn = jest.fn()
+    const { fadeInterval, updateIntervalEndVolume } = adjustVolume(
+      audio,
+      audio.volume,
+      1,
+      { duration: 200 },
+      fn,
+    )
+    expect(fadeInterval).not.toBeUndefined()
+    expect(updateIntervalEndVolume).not.toBeUndefined()
+    updateIntervalEndVolume(0.5)
+    expect(audio.volume).toStrictEqual(0)
+    expect(fn).not.toHaveBeenCalled()
+
+    await sleep(500)
+
+    expect(audio.volume).toStrictEqual(0.5)
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it('should set audio volume non-linearly', async () => {
+    const wrapper = mount(
+      <ReactJkMusicPlayer
+        audioLists={[
+          { musicSrc: 'x', cover: '' },
+          { musicSrc: 'xx', cover: '' },
+        ]}
+        mode="full"
+      />,
+    )
+    expect(wrapper.state('currentAudioVolume')).toStrictEqual(1)
+    expect(wrapper.instance().audio.volume).toStrictEqual(1)
+
+    wrapper.instance().setAudioVolume(0.5)
+
+    expect(wrapper.state('currentAudioVolume')).toStrictEqual(0.5)
+    expect(wrapper.instance().audio.volume).toStrictEqual(0.25)
+  })
+
+  it('should set volume slider value non-linearly and invoke onAudioVolumeChange', async () => {
+    const fn = jest.fn()
+    const wrapper = mount(
+      <ReactJkMusicPlayer
+        audioLists={[
+          { musicSrc: 'x', cover: '' },
+          { musicSrc: 'xx', cover: '' },
+        ]}
+        mode="full"
+        onAudioVolumeChange={fn}
+      />,
+    )
+    expect(wrapper.state('soundValue')).toStrictEqual(1)
+    expect(wrapper.instance().audio.volume).toStrictEqual(1)
+
+    wrapper.instance().audio.volume = 0.25
+    wrapper.instance().onAudioVolumeChange()
+
+    expect(fn).toHaveBeenCalledWith(0.25)
+    expect(wrapper.instance().audio.volume).toStrictEqual(0.25)
+    expect(wrapper.state('soundValue')).toStrictEqual(0.5)
+  })
+
+  it("should don't play audio when audio seeked by slider bar if audio is paused", async () => {
+    const onAudioSeeked = jest.fn()
+    const onAudioPlay = jest.fn()
+    const wrapper = mount(
+      <ReactJkMusicPlayer
+        audioLists={[{ musicSrc: 'x', cover: '' }]}
+        autoPlay={false}
+        mode="full"
+        onAudioSeeked={onAudioSeeked}
+        onAudioPlay={onAudioPlay}
+      />,
+    )
+    wrapper.instance().onAudioSeeked(100)
+
+    expect(onAudioPlay).not.toHaveBeenCalled()
+    expect(onAudioSeeked).toHaveBeenCalledTimes(1)
+  })
+
+  it('should never fade on iOS', async () => {
+    const platformGetter = jest.spyOn(window.navigator, 'platform', 'get')
+    platformGetter.mockReturnValue('iPhone')
+
+    const audio = {
+      volume: 0,
+    }
+    const fn = jest.fn()
+    const { fadeInterval, updateIntervalEndVolume } = adjustVolume(
+      audio,
+      audio.volume,
+      1,
+      { duration: 200 },
+      fn,
+    )
+
+    expect(fadeInterval).toBeUndefined()
+    expect(updateIntervalEndVolume).toBeUndefined()
+    expect(fn).toHaveBeenCalledTimes(1)
+    expect(audio.volume).toStrictEqual(1)
+
+    platformGetter.mockRestore()
+  })
+
+  it('should respect fade on non-iOS', async () => {
+    const platformGetter = jest.spyOn(window.navigator, 'platform', 'get')
+    platformGetter.mockReturnValue('MacIntel')
+
+    const audio = {
+      volume: 0,
+    }
+    const fn = jest.fn()
+    const { fadeInterval, updateIntervalEndVolume } = adjustVolume(
+      audio,
+      audio.volume,
+      1,
+      { duration: 200 },
+      fn,
+    )
+
+    expect(fadeInterval).not.toBeUndefined()
+    expect(updateIntervalEndVolume).not.toBeUndefined()
+
+    await sleep(500)
+
+    expect(fn).toHaveBeenCalledTimes(1)
+    expect(audio.volume).toStrictEqual(1)
+
+    platformGetter.mockRestore()
+  })
+
+  it('should reset play index to default value when audio lists changed', async () => {
+    const audioLists = [{ musicSrc: 'y' }]
+    const onPlayIndexChange = jest.fn()
+    const wrapper = mount(
+      <ReactJkMusicPlayer
+        audioLists={[{ musicSrc: 'x' }]}
+        autoPlay={false}
+        defaultPlayIndex={1}
+        clearPriorAudioLists
+        onPlayIndexChange={onPlayIndexChange}
+      />,
+    )
+
+    wrapper.setProps({ audioLists })
+
+    await sleep(200)
+
+    expect(wrapper.state('playIndex')).toEqual(0)
+
+    wrapper.setProps({ audioLists })
   })
 })

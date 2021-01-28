@@ -255,6 +255,12 @@ const options = {
    */
   mobileMediaQuery: '(max-width: 1024px)',
 
+  // Audio volume with fade in and fade out [type `{ fadeIn: number, fadeOut: number }` default `{ fadeIn: 0, fadeOut: 0 }`]
+  volumeFade: {
+    fadeIn: 1000,
+    fadeOut: 1000,
+  },
+
   // Music is downloaded handle
   onAudioDownload(audioInfo) {
     console.log('audio download', audioInfo)

@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="logo" src="https://github.com/lijinke666/react-music-player/blob/master/assetsImg/logo.png" width="100" max-width="100%">
+  <img alt="logo" src="https://github.com/lijinke666/react-music-player/blob/master/assetsImg/logo.png?raw=true" width="100" max-width="100%">
 </p>
 
 <h1 align="center">
@@ -67,19 +67,19 @@ npm install react-jinke-music-player --save
 
 > mini mode <br/>
 
-![mini mode](https://github.com/lijinke666/react-music-player/blob/master/assetsImg/mini.png)
+![mini mode](https://github.com/lijinke666/react-music-player/blob/master/assetsImg/mini.png?raw=true)
 
 > Light Theme <br/>
 
-![light theme](https://github.com/lijinke666/react-music-player/blob/master/assetsImg/light-theme.png)
+![light theme](https://github.com/lijinke666/react-music-player/blob/master/assetsImg/light-theme.png?raw=true)
 
 > Dark Theme <br/>
 
-![dark theme](https://github.com/lijinke666/react-music-player/blob/master/assetsImg/dark-theme.png)
+![dark theme](https://github.com/lijinke666/react-music-player/blob/master/assetsImg/dark-theme.png?raw=true)
 
 > mobile <br/>
 
-![mobile](https://github.com/lijinke666/react-music-player/blob/master/assetsImg/mobile.jpg)
+![mobile](https://github.com/lijinke666/react-music-player/blob/master/assetsImg/mobile.jpg?raw=true)
 
 ## :sparkles: Feature list
 
@@ -103,6 +103,7 @@ npm install react-jinke-music-player --save
 - [x] [Customize audio duration](#bulb-customize-audio-duration) (v4.13.0)
 - [x] [Customize player icon](#bulb-customize-player-icon) (v4.17.0)
 - [x] [Follow the theme of the system](#bulb-follow-the-theme-of-the-system) (v4.16.0)
+- [x] [Audio volume fadeIn/fadeOut](#bulb-audio-volume-fade-in-and-fade-out) (v4.20.0)
 
 ## :eyes: Example
 
@@ -133,7 +134,7 @@ ReactDOM.render(
 ## :clipboard: API
 
 | Name | Type | Default | Description |
-| --- | --- | --- | --- |
+| ---  | ---  | ---     | ---         |
 | className | `string` | `-` | Additional CSS class for the root DOM node |
 | audioLists | [AudioListProps[]](#bulb-audiolistprops) | `-` | [Detail](#bulb-audiolistprops) |
 | theme | `light` \| `dark` \| `auto` | `dark` | color of the music player theme `dark`, `light`, `auto (follow system)` | `light` |
@@ -192,7 +193,7 @@ ReactDOM.render(
 | getAudioInstance | `(instance: HTMLAudioElement) => void` | `-` | get origin audio element instance , you can use it do everything |
 | autoHiddenCover | `boolean` | `false` | Auto hide the cover photo if no cover photo is available |
 | onBeforeAudioDownload | `(audioInfo: ReactJkMusicPlayerAudioInfo) => Promise<TransformedDownloadAudioInfo>` | `-` | transform download audio info before |
-| clearPriorAudioLists | `boolean` | `false` | Replace a new playlist with the first loaded playlist, |
+| clearPriorAudioLists | `boolean` | `false` | Replace a new playlist with the first loaded playlist and reset playIndex to 0 |
 | autoPlayInitLoadPlayList | `boolean` | `false` | Play your new play list right after your new play list is loaded turn false. |
 | spaceBar | `boolean` | `false` | Play and pause audio through space bar （Desktop effective）. |
 | showDestroy | `boolean` | `false` | Destroy player button display |
@@ -203,7 +204,8 @@ ReactDOM.render(
 | onPlayIndexChange | `function(playIndex)` | `-` | audio play index change handle |
 | quietUpdate | `boolean` | `false` | [Detail](#bulb-quiet-update) |
 | renderAudioTitle | `(audioInfo, isMobile) => ReactNode` | `-` | use `locale.audioTitle` to set `audio` tag title, the api can render custom jsx element for display |
-| mobileMediaQuery | `string` | `(max-width: 768px) and (orientation : portrait)` | Custom mobile media query string, eg use the mobile version UI on iPad. <https://developer.mozilla.org/en-US/docs/Web/CSS/Media_Queries/Using_media_queries> |
+| mobileMediaQuery | `string` | `(max-width: 768px) and (orientation : portrait)` | custom mobile media query string, eg use the mobile version UI on iPad. <https://developer.mozilla.org/en-US/docs/Web/CSS/Media_Queries/Using_media_queries> |
+| volumeFade | `{ fadeIn: number(ms), fadeOut: number(ms) }` | `-` | audio fade in and out. [Detail](#bulb-audio-volume-fade-in-and-fade-out) |
 
 ## :bulb: Custom operation ui
 
@@ -543,19 +545,26 @@ export interface ReactJkMusicPlayerIcon {
  * (C) is playing
  */
 
- function App() {
-     const [audioLists, setAudioLists] = useState([{ musicSrc: 'A' }, { musicSrc: 'B' }])
+function App() {
+  const [audioLists, setAudioLists] = useState([
+    { musicSrc: 'A' },
+    { musicSrc: 'B' },
+  ])
 
-     useEffect(() => {
-        setTimeout(() => {
-          setAudioLists([{ musicSrc: 'A' }, { musicSrc: 'C' }, { musicSrc: 'B' }])
-        }, 1000)
-     }, [setAudioLists])
+  useEffect(() => {
+    setTimeout(() => {
+      setAudioLists([{ musicSrc: 'A' }, { musicSrc: 'C' }, { musicSrc: 'B' }])
+    }, 1000)
+  }, [setAudioLists])
 
-     return (
-       <ReactJkMusicPlayer quietUpdate clearPriorAudioLists audioLists={audioLists} />
-     )
- }
+  return (
+    <ReactJkMusicPlayer
+      quietUpdate
+      clearPriorAudioLists
+      audioLists={audioLists}
+    />
+  )
+}
 ```
 
 ## :bulb: Import in browser
@@ -610,12 +619,18 @@ const PlayerWithNoSSR = dynamic(() => import('../components/Player'), {
 <ReactJkMusicPlayer mobileMediaQuery="(max-width: 1024px)" />
 ```
 
+## :bulb: Audio volume fade in and fade out
+
+```jsx
+<ReactJkMusicPlayer volumeFade={{ fadeIn: 500, fadeOut: 500 }} />
+```
+
 ## :pencil: Development
 
 ```bash
 git clone https://github.com/lijinke666/react-music-player.git
-yarn | npm install
-yarn start | npm start
+yarn # npm install
+yarn start # npm start
 open `http://localhost:8081/`
 ```
 
@@ -664,6 +679,12 @@ interface ReactJkMusicPlayerAudioInfo {
   [key: string]: any
 }
 ```
+
+## :two_men_holding_hands: Contributors
+
+> Special thanks: @JeffreyCA
+
+![https://github.com/lijinke666/react-music-player/graphs/contributors](https://contrib.rocks/image?repo=lijinke666/react-music-player)
 
 ## :page_facing_up: License
 

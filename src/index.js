@@ -47,11 +47,21 @@ import { MODE } from './config/mode'
 import { AUDIO_NETWORK_STATE, AUDIO_READY_STATE } from './config/audioState'
 import PLAY_MODE from './config/playMode'
 import PROP_TYPES from './config/propTypes'
-import { sliderBaseOptions } from './config/slider'
+import {
+  PROGRESS_BAR_SLIDER_OPTIONS,
+  VOLUME_BAR_SLIDER_OPTIONS,
+} from './config/slider'
 import { THEME } from './config/theme'
+import { VOLUME_FADE } from './config/volumeFade'
+import {
+  DEFAULT_PLAY_INDEX,
+  DEFAULT_VOLUME,
+  DEFAULT_REMOVE_ID,
+} from './config/player'
 import LOCALE_CONFIG from './locale'
 import Lyric from './lyric'
 import {
+  adjustVolume,
   arrayEqual,
   createRandomNum,
   formatTime,
@@ -103,7 +113,7 @@ export default class ReactJkMusicPlayer extends PureComponent {
     toggle: this.props.mode === MODE.FULL,
     playing: false,
     currentTime: 0,
-    soundValue: 100,
+    soundValue: DEFAULT_VOLUME * 100,
     moveX: 0,
     moveY: 0,
     loading: false,
@@ -116,12 +126,17 @@ export default class ReactJkMusicPlayer extends PureComponent {
     isInitAutoPlay: this.props.autoPlay,
     isInitRemember: false,
     loadedProgress: 0,
-    removeId: -1,
+    removeId: DEFAULT_REMOVE_ID,
     isNeedMobileHack: IS_MOBILE,
     audioLyricVisible: false,
     isAutoPlayWhenUserClicked: false,
-    playIndex: this.props.playIndex || this.props.defaultPlayIndex || 0,
+    playIndex:
+      this.props.playIndex || this.props.defaultPlayIndex || DEFAULT_PLAY_INDEX,
     canPlay: false,
+    currentVolumeFade: VOLUME_FADE.NONE,
+    currentVolumeFadeInterval: undefined,
+    updateIntervalEndVolume: undefined,
+    isAudioSeeking: false,
   }
 
   static defaultProps = {
@@ -168,6 +183,11 @@ export default class ReactJkMusicPlayer extends PureComponent {
     icon: DEFAULT_ICON,
     quietUpdate: false, // 更新后的播放列表如果有当前正在播放的歌曲不打断当前播放状态
     mobileMediaQuery: MEDIA_QUERY.MOBILE,
+    // 音频暂停播放 淡入淡出
+    volumeFade: {
+      fadeIn: 0,
+      fadeOut: 0,
+    },
   }
 
   static propTypes = PROP_TYPES
@@ -323,7 +343,7 @@ export default class ReactJkMusicPlayer extends PureComponent {
           defaultValue={0}
           value={Math.ceil(currentTime)}
           {...progressHandler}
-          {...sliderBaseOptions}
+          {...PROGRESS_BAR_SLIDER_OPTIONS}
         />
       </>
     )
@@ -442,6 +462,9 @@ export default class ReactJkMusicPlayer extends PureComponent {
       return null
     }
 
+    const shouldShowPlayIcon =
+      !playing || this.state.currentVolumeFade === VOLUME_FADE.OUT
+
     return createPortal(
       <div
         className={cls(
@@ -488,6 +511,7 @@ export default class ReactJkMusicPlayer extends PureComponent {
             locale={locale}
             toggleMode={toggleMode}
             renderAudioTitle={this.renderAudioTitle}
+            shouldShowPlayIcon={shouldShowPlayIcon}
           />
         )}
 
@@ -559,12 +583,14 @@ export default class ReactJkMusicPlayer extends PureComponent {
                         className="group play-btn"
                         onClick={this.onTogglePlay}
                         title={
-                          playing
-                            ? locale.clickToPauseText
-                            : locale.clickToPlayText
+                          shouldShowPlayIcon
+                            ? locale.clickToPlayText
+                            : locale.clickToPauseText
                         }
                       >
-                        {playing ? this.iconMap.pause : this.iconMap.play}
+                        {shouldShowPlayIcon
+                          ? this.iconMap.play
+                          : this.iconMap.pause}
                       </span>
                     )}
                     <span
@@ -594,11 +620,10 @@ export default class ReactJkMusicPlayer extends PureComponent {
                     </span>
                   )}
                   <Slider
-                    max={1}
                     value={soundValue}
-                    onChange={this.audioSoundChange}
+                    onChange={this.onAudioSoundChange}
                     className="sound-operation"
-                    {...sliderBaseOptions}
+                    {...VOLUME_BAR_SLIDER_OPTIONS}
                   />
                 </span>
 
@@ -685,7 +710,10 @@ export default class ReactJkMusicPlayer extends PureComponent {
     playIndex = this.state.playIndex,
     audioLists = this.state.audioLists,
   ) => {
-    return Math.max(0, Math.min(audioLists.length - 1, playIndex))
+    return Math.max(
+      DEFAULT_PLAY_INDEX,
+      Math.min(audioLists.length - 1, playIndex),
+    )
   }
 
   onCoverClick = (mode = MODE.FULL) => {
@@ -1018,12 +1046,18 @@ export default class ReactJkMusicPlayer extends PureComponent {
     this.setAudioVolume(currentAudioVolume || 0.1)
   }
 
-  setAudioVolume = (value) => {
-    this.audio.volume = value
+  setAudioVolume = (volumeBarValue) => {
+    this.audio.volume = this.getListeningVolume(volumeBarValue)
     this.setState({
-      currentAudioVolume: value,
-      soundValue: value,
+      currentAudioVolume: volumeBarValue,
+      soundValue: volumeBarValue,
     })
+
+    // Update fade-in interval to transition to new volume
+    if (this.state.currentVolumeFade === VOLUME_FADE.IN) {
+      this.state.updateIntervalEndVolume &&
+        this.state.updateIntervalEndVolume(volumeBarValue)
+    }
   }
 
   stopAll = (target) => {
@@ -1037,6 +1071,14 @@ export default class ReactJkMusicPlayer extends PureComponent {
       left,
       top,
     }
+  }
+
+  getListeningVolume = (volumeBarValue) => {
+    return volumeBarValue ** 2
+  }
+
+  getVolumeBarValue = (listeningVolume) => {
+    return Math.sqrt(listeningVolume)
   }
 
   onAudioReload = () => {
@@ -1119,6 +1161,7 @@ export default class ReactJkMusicPlayer extends PureComponent {
           lyric: '',
           currentLyric: '',
           loadedProgress: 0,
+          playIndex: DEFAULT_PLAY_INDEX,
         },
         res,
       )
@@ -1173,15 +1216,101 @@ export default class ReactJkMusicPlayer extends PureComponent {
   }
 
   onTogglePlay = () => {
+    this.setState({ isAudioSeeking: false })
     if (this.state.audioLists.length >= 1) {
-      if (this.state.playing) {
-        return this.audio.pause()
+      const { fadeIn, fadeOut } = this.props.volumeFade || {}
+      const { currentVolumeFade, currentVolumeFadeInterval } = this.state
+      const isCurrentlyFading =
+        currentVolumeFade === VOLUME_FADE.IN ||
+        currentVolumeFade === VOLUME_FADE.OUT
+
+      /**
+       * Currently in middle of fading in/out, so need to cancel the current interval and do the opposite action.
+       * E.g. if currently fading out, then we need to cancel the fade-out and do a fade-in starting at current volume.
+       */
+      if (isCurrentlyFading) {
+        // Clear current fade-in/out
+        clearInterval(currentVolumeFadeInterval)
+        this.setState({
+          currentVolumeFadeInterval: undefined,
+          updateIntervalEndVolume: undefined,
+        })
       }
-      this.setState(
-        // lgtm [js/react/inconsistent-state-update]
-        { isAutoPlayWhenUserClicked: true },
-        this.loadAndPlayAudio,
-      )
+
+      // Currently playing track or in the middle of fading in
+      if (
+        (!isCurrentlyFading && this.state.playing) ||
+        currentVolumeFade === VOLUME_FADE.IN
+      ) {
+        this.setState({ currentVolumeFade: VOLUME_FADE.OUT })
+        // Fade in from current volume to 0
+        const {
+          fadeInterval: fadeOutInterval,
+          updateIntervalEndVolume,
+        } = adjustVolume(
+          this.audio,
+          this.audio.volume,
+          0,
+          {
+            duration: fadeOut,
+          },
+          () => {
+            this.audio.pause()
+            this.setState({
+              currentVolumeFade: VOLUME_FADE.NONE,
+              currentVolumeFadeInterval: undefined,
+              playing: false,
+              updateIntervalEndVolume: undefined,
+            })
+            // Restore volume so slider does not reset to zero
+            this.audio.volume = this.getListeningVolume(this.state.soundValue)
+          },
+        )
+
+        this.setState({
+          currentVolumeFadeInterval: fadeOutInterval,
+          updateIntervalEndVolume,
+        })
+      } else {
+        this.setState({ currentVolumeFade: VOLUME_FADE.IN })
+        // Start volume may not be 0 if interrupting a fade-out
+        const startVolume = isCurrentlyFading ? this.audio.volume : 0
+        const endVolume = this.getListeningVolume(this.state.soundValue)
+        const {
+          fadeInterval: fadeInInterval,
+          updateIntervalEndVolume,
+        } = adjustVolume(
+          this.audio,
+          startVolume,
+          endVolume,
+          {
+            duration: fadeIn,
+          },
+          () => {
+            this.setState({
+              currentVolumeFade: VOLUME_FADE.NONE,
+              currentVolumeFadeInterval: undefined,
+              updateIntervalEndVolume: undefined,
+            })
+            // It's possible that the volume level in the UI has changed since beginning of fade
+            this.audio.volume = this.getListeningVolume(this.state.soundValue)
+          },
+        )
+
+        this.setState(
+          {
+            currentVolumeFadeInterval: fadeInInterval,
+            updateIntervalEndVolume,
+            isAutoPlayWhenUserClicked: true,
+          },
+          () => {
+            if (fadeInInterval) {
+              this.audio.volume = startVolume
+            }
+            this.loadAndPlayAudio()
+          },
+        )
+      }
     }
   }
 
@@ -1210,6 +1339,10 @@ export default class ReactJkMusicPlayer extends PureComponent {
   }
 
   onAudioPlay = () => {
+    // Audio currentTime changed will be trigger audio playing event
+    if (this.state.isAudioSeeking) {
+      return
+    }
     this.setState({ playing: true, loading: false })
     this.props.onAudioPlay && this.props.onAudioPlay(this.getBaseAudioInfo())
     if (this.state.lyric && this.lyric) {
@@ -1248,7 +1381,7 @@ export default class ReactJkMusicPlayer extends PureComponent {
       })
     }
 
-    this.setState({ playing: false, loading: true })
+    this.setState({ playing: false, loading: true, isAudioSeeking: false })
 
     if (isLoaded || readyState >= AUDIO_READY_STATE.HAVE_FUTURE_DATA) {
       const { playing } = this.getLastPlayStatus()
@@ -1414,33 +1547,56 @@ export default class ReactJkMusicPlayer extends PureComponent {
       this.props.onAudioProgress(this.getBaseAudioInfo())
   }
 
-  audioSoundChange = (value) => {
+  onAudioSoundChange = (value) => {
     this.setAudioVolume(value)
   }
 
   onAudioVolumeChange = () => {
     const { volume } = this.audio
+    const { currentVolumeFade, currentAudioVolume } = this.state
+    if (
+      currentVolumeFade !== VOLUME_FADE.NONE ||
+      currentAudioVolume === volume
+    ) {
+      return
+    }
+    const volumeBarValue = this.getVolumeBarValue(volume)
     this.setState({
-      soundValue: volume,
+      soundValue: volumeBarValue,
     })
-    this.props.onAudioVolumeChange && this.props.onAudioVolumeChange(volume)
+    if (this.props.onAudioVolumeChange) {
+      const formattedVolume = parseFloat(volume.toFixed(4))
+      this.props.onAudioVolumeChange(formattedVolume)
+    }
   }
 
-  onProgressChange = (value) => {
+  onProgressChange = (currentTime) => {
     if (this.audio) {
-      this.audio.currentTime = value
+      this.audio.currentTime = currentTime
     }
+    this.setState({ currentTime, isAudioSeeking: true })
   }
 
-  onAudioSeeked = () => {
-    if (this.state.audioLists.length >= 1) {
-      this.lyric && this.lyric.seek(this.audio.currentTime * 1000)
-      if (!this.state.playing) {
-        this.lyric && this.lyric.stop()
-      }
-      this.props.onAudioSeeked &&
-        this.props.onAudioSeeked(this.getBaseAudioInfo())
+  onAudioSeeked = (currentTime) => {
+    this.setState({ isAudioSeeking: true })
+    if (!this.state.audioLists.length) {
+      return
     }
+    this.lyric && this.lyric.seek(currentTime * 1000)
+
+    if (!this.state.playing) {
+      this.lyric && this.lyric.stop()
+    }
+    if (this.audio) {
+      this.audio.currentTime = currentTime
+    }
+
+    this.props.onAudioSeeked &&
+      this.props.onAudioSeeked(this.getBaseAudioInfo())
+
+    setTimeout(() => {
+      this.setState({ isAudioSeeking: false })
+    }, 500)
   }
 
   onAudioMute = () => {
@@ -1861,7 +2017,7 @@ export default class ReactJkMusicPlayer extends PureComponent {
       ? this.getLastPlayStatus()
       : {
           playMode: playMode || PLAY_MODE.order,
-          playIndex: playIndex || 0,
+          playIndex: playIndex || DEFAULT_PLAY_INDEX,
         }
 
     if (theme !== THEME.AUTO) {
@@ -2160,6 +2316,9 @@ export default class ReactJkMusicPlayer extends PureComponent {
   }
 
   onAudioCanPlay = () => {
+    if (this.state.isAudioSeeking) {
+      return
+    }
     this.setState({ canPlay: true }, () => {
       this.playAudio(true)
     })
@@ -2175,7 +2334,8 @@ export default class ReactJkMusicPlayer extends PureComponent {
       playMode,
       clearPriorAudioLists,
     } = nextProps
-    if (!arrayEqual(audioLists)(this.props.audioLists)) {
+    const isEqualAudioLists = arrayEqual(audioLists)(this.props.audioLists)
+    if (!isEqualAudioLists) {
       if (clearPriorAudioLists) {
         this.changeAudioLists(nextProps)
       } else {
@@ -2185,7 +2345,11 @@ export default class ReactJkMusicPlayer extends PureComponent {
         this.initPlayer(audioLists, false)
       }
     }
-    this.updatePlayIndex(playIndex)
+    this.updatePlayIndex(
+      !isEqualAudioLists && clearPriorAudioLists
+        ? DEFAULT_PLAY_INDEX
+        : playIndex,
+    )
     this.updateTheme(theme)
     this.updateMode(mode)
     this.updatePlayMode(playMode)
